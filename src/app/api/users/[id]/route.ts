@@ -90,15 +90,22 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/users/[id]">
 
   if ("error" in result) return jsonError(result.error!, result.status!);
   let mail: Awaited<ReturnType<typeof sendMail>> | undefined;
+  const loginUrl = `${appUrl(request)}/login`;
   if (result.resetPassword) {
     mail = await sendMail({
       to: result.user.email,
-      ...welcomeEmail(result.user.name, result.user.email, DEFAULT_USER_PASSWORD, `${appUrl(request)}/login`, true),
+      ...welcomeEmail(result.user.name, result.user.email, DEFAULT_USER_PASSWORD, loginUrl, true),
     });
   }
   return NextResponse.json({
     user: toPublicUser(result.user),
-    ...(mail ? { emailSent: mail.sent, emailError: mail.sent ? undefined : mail.reason } : {}),
+    ...(mail
+      ? {
+          emailSent: mail.sent,
+          emailError: mail.sent ? undefined : mail.reason,
+          credentials: { email: result.user.email, password: DEFAULT_USER_PASSWORD, loginUrl },
+        }
+      : {}),
   });
 }
 
