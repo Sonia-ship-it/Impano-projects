@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSession } from "@/components/AppShell";
-import { api, PasswordInput, useToast } from "@/components/ui";
+import { api, PasswordChecklist, passwordChecks, PasswordInput, useToast } from "@/components/ui";
 import { IconCheck, IconLock } from "@/components/Icons";
 import { PERMISSION_LABELS, type Permissions } from "@/lib/types";
 
@@ -78,8 +78,9 @@ export default function AccountPage() {
               <label className="label" htmlFor="cp">Confirm new password</label>
               <PasswordInput id="cp" className="input" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} required />
             </div>
-            {error && <div className="alert alert-error" style={{ marginTop: 0 }}>⚠️ {error}</div>}
-            <div><button type="submit" className="btn btn-gold" disabled={saving}>{saving ? <span className="spinner" /> : "Update Password"}</button></div>
+            <PasswordChecklist checks={passwordChecks(form.newPassword, form.confirm)} />
+            {error && <div className="alert alert-error" style={{ marginTop: 0 }} role="alert">{error}</div>}
+            <div><button type="submit" className="btn btn-gold" disabled={saving || !passwordChecks(form.newPassword, form.confirm).every((c) => c.ok) || !form.currentPassword}>{saving ? <span className="spinner" /> : "Update Password"}</button></div>
           </form>
         </section>
       </div>

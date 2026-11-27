@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useSession, initials } from "@/components/AppShell";
-import { api, ConfirmDialog, Loading, Modal, PasswordInput, StatusBadge, useToast } from "@/components/ui";
-import { IconEdit, IconPlus, IconTrash } from "@/components/Icons";
+import { api, ConfirmDialog, Loading, Modal, StatusBadge, useToast } from "@/components/ui";
+import { IconEdit, IconKey, IconMail, IconPlus, IconTrash } from "@/components/Icons";
 import { dateTime } from "@/lib/format";
 import {
   DEFAULT_MEMBER_PERMISSIONS,
@@ -21,7 +21,6 @@ interface Draft {
   id?: string;
   name: string;
   email: string;
-  password: string;
   role: Role;
   active: boolean;
   permissions: Permissions;
@@ -31,7 +30,6 @@ interface Draft {
 const blank: Draft = {
   name: "",
   email: "",
-  password: "",
   role: "member",
   active: true,
   permissions: { ...DEFAULT_MEMBER_PERMISSIONS },
@@ -45,6 +43,7 @@ export default function UsersManager() {
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [toDelete, setToDelete] = useState<PublicUser | null>(null);
+  const [toReset, setToReset] = useState<PublicUser | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
@@ -61,7 +60,7 @@ export default function UsersManager() {
   useEffect(load, [load]);
 
   const openEdit = (u: PublicUser) =>
-    setDraft({ id: u.id, name: u.name, email: u.email, password: "", role: u.role, active: u.active, permissions: { ...u.permissions }, projectAccess: { ...u.projectAccess, projectIds: [...u.projectAccess.projectIds] } });
+    setDraft({ id: u.id, name: u.name, email: u.email, role: u.role, active: u.active, permissions: { ...u.permissions }, projectAccess: { ...u.projectAccess, projectIds: [...u.projectAccess.projectIds] } });
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,10 +75,11 @@ export default function UsersManager() {
       projectAccess: draft.projectAccess,
     };
     if (draft.id) body.active = draft.active;
-    if (draft.password) body.password = draft.password;
     try {
-      await api(draft.id ? `/api/users/${draft.id}` : "/api/users", { method: draft.id ? "PUT" : "POST", body: JSON.stringify(body) });
-      toast(draft.id ? "User updated." : `${draft.name} can now sign in.`, "success");
+      const res = await api<{ emailSent?: boolean; emailError?: string }>(draft.id ? `/api/users/${draft.id}` : "/api/users", { method: draft.id ? "PUT" : "POST", body: JSON.stringify(body) });
+      if (draft.id) toast("User updated.", "success");
+      else if (res.emailSent) toast(`Invitation sent to ${draft.email}.`, "success");
+      else toast(`User created, but the email failed: ${res.emailError}. Share the temporary password with them yourself.`, "error");
       setDraft(null);
       load();
     } catch (err) {
@@ -96,6 +96,22 @@ export default function UsersManager() {
       await api(`/api/users/${toDelete.id}`, { method: "DELETE" });
       toast("User removed.", "success");
       setToDelete(null);
+      load();
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!toReset) return;
+    setSaving(true);
+    try {
+      const res = await api<{ emailSent?: boolean; emailError?: string }>(`/api/users/${toReset.id}`, { method: "PUT", body: JSON.stringify({ resetPassword: true }) });
+      toast(res.emailSent ? `Password reset. ${toReset.name} has been emailed.` : `Password reset, but the email failed: ${res.emailError}`, res.emailSent ? "success" : "error");
+      setToReset(null);
+      setDraft(null);
       load();
     } catch (err) {
       toast((err as Error).message, "error");
@@ -163,7 +179,11 @@ export default function UsersManager() {
                         ? "Full control"
                         : `${u.projectAccess.mode === "all" ? "All projects" : `${u.projectAccess.projectIds.length} selected project(s)`} · ${granted.length ? granted.map((k) => PERMISSION_LABELS[k].label.replace(/^View /, "")).join(", ") : "basic details only"}`}
                     </td>
-                    <td>{u.active ? <span className="badge badge-completed">Active</span> : <span className="badge badge-cancelled">Disabled</span>}</td>
+                    <td>
+                      {!u.active ? <span className="badge badge-cancelled">Disabled</span>
+                        : u.mustChangePassword ? <span className="badge badge-on_hold" title="Still using the temporary password">Pending</span>
+                        : <span className="badge badge-completed">Active</span>}
+                    </td>
                     <td className="muted">{u.lastLoginAt ? dateTime(u.lastLoginAt) : "Never"}</td>
                     <td className="num">
                       <div style={{ display: "inline-flex", gap: "0.5rem" }}>
@@ -193,11 +213,7 @@ export default function UsersManager() {
                 <label className="label" htmlFor="u-email">Email <span className="req">*</span></label>
                 <input id="u-email" type="email" className="input" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} required />
               </div>
-              <div className="field">
-                <label className="label" htmlFor="u-pass">{draft.id ? "Reset password" : "Password"} {!draft.id && <span className="req">*</span>}</label>
-                <PasswordInput id="u-pass" className="input" value={draft.password} onChange={(e) => setDraft({ ...draft, password: e.target.value })} placeholder={draft.id ? "Leave blank to keep current" : "Min. 8 characters"} autoComplete="new-password" required={!draft.id} minLength={8} />
-              </div>
-              <div className="field">
+              <div className="field full">
                 <span className="label">Role</span>
                 <div className="segmented" role="group" aria-label="Role">
                   <button type="button" className={draft.role === "member" ? "active" : ""} onClick={() => setDraft({ ...draft, role: "member" })} disabled={isSelf}>Member</button>
@@ -207,8 +223,24 @@ export default function UsersManager() {
               </div>
             </div>
 
+            {!draft.id && (
+              <div className="alert alert-info">
+                <IconMail size={16} />
+                <span>We&apos;ll email them a temporary password and a sign-in link. They must choose their own password the first time they sign in.</span>
+              </div>
+            )}
+
             {draft.id && !isSelf && (
               <div className="switch-row" style={{ marginTop: "1rem" }}>
+                <div><strong>Password</strong><small>Send them back to the temporary password and email new sign-in instructions.</small></div>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setToReset(users?.find((u) => u.id === draft.id) ?? null)}>
+                  <IconKey size={14} /> Reset
+                </button>
+              </div>
+            )}
+
+            {draft.id && !isSelf && (
+              <div className="switch-row">
                 <div><strong>Account active</strong><small>Disabled users are signed out and cannot sign in.</small></div>
                 <label className="switch"><input type="checkbox" checked={draft.active} onChange={(e) => setDraft({ ...draft, active: e.target.checked })} /><span /></label>
               </div>
@@ -256,13 +288,24 @@ export default function UsersManager() {
               </>
             )}
 
-            {error && <div className="alert alert-error">⚠️ {error}</div>}
+            {error && <div className="alert alert-error" role="alert">{error}</div>}
             <div className="form-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setDraft(null)}>Cancel</button>
-              <button type="submit" className="btn btn-gold" disabled={saving}>{saving ? <span className="spinner" /> : draft.id ? "Save Changes" : "Create User"}</button>
+              <button type="submit" className="btn btn-gold" disabled={saving}>{saving ? <span className="spinner" /> : draft.id ? "Save Changes" : "Create & Send Invite"}</button>
             </div>
           </form>
         </Modal>
+      )}
+
+      {toReset && (
+        <ConfirmDialog
+          title="Reset password?"
+          message={<><strong>{toReset.name}</strong> will be signed out and emailed a temporary password. They&apos;ll have to choose a new one when they sign in.</>}
+          confirmLabel="Reset & Email"
+          onConfirm={resetPassword}
+          onCancel={() => setToReset(null)}
+          busy={saving}
+        />
       )}
 
       {toDelete && (

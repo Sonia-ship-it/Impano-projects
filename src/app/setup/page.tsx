@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Logo from "@/components/Logo";
 import GeometricPattern from "@/components/GeometricPattern";
-import { Loading, PasswordInput } from "@/components/ui";
+import { api, Loading, PasswordChecklist, passwordChecks, PasswordInput } from "@/components/ui";
 
 export default function SetupPage() {
   const router = useRouter();
@@ -14,8 +14,7 @@ export default function SetupPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/auth/setup", { cache: "no-store" })
-      .then((r) => r.json())
+    api<{ needsSetup: boolean }>("/api/auth/setup")
       .then((d) => (d.needsSetup ? setChecking(false) : router.replace("/login")))
       .catch(() => setChecking(false));
   }, [router]);
@@ -28,13 +27,10 @@ export default function SetupPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/auth/setup", {
+      await api("/api/auth/setup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: form.name, email: form.email, password: form.password }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Setup failed.");
       router.replace("/dashboard");
       router.refresh();
     } catch (err) {
@@ -58,14 +54,21 @@ export default function SetupPage() {
             Create <span>Admin</span>
           </h1>
           <p className="lock-desc">This account will have full control: projects, finances, users and permissions.</p>
-          <input className="lock-input" placeholder="Full name" value={form.name} onChange={set("name")} required autoFocus disabled={loading} />
-          <input className="lock-input" type="email" placeholder="Email address" autoComplete="email" value={form.email} onChange={set("email")} required disabled={loading} />
-          <PasswordInput className="lock-input" placeholder="Password (min. 8 characters)" autoComplete="new-password" minLength={8} value={form.password} onChange={set("password")} required disabled={loading} />
-          <PasswordInput className="lock-input" placeholder="Confirm password" autoComplete="new-password" value={form.confirm} onChange={set("confirm")} required disabled={loading} />
-          <button type="submit" className="btn btn-gold btn-block" disabled={loading} style={{ marginTop: "0.5rem" }}>
+          <div className="lock-fields">
+            <label className="lock-label" htmlFor="s-name">Full name</label>
+            <input id="s-name" className="lock-input" value={form.name} onChange={set("name")} required autoFocus disabled={loading} />
+            <label className="lock-label" htmlFor="s-email">Email</label>
+            <input id="s-email" className="lock-input" type="email" autoComplete="email" value={form.email} onChange={set("email")} required disabled={loading} />
+            <label className="lock-label" htmlFor="s-pw">Password</label>
+            <PasswordInput id="s-pw" className="lock-input" autoComplete="new-password" value={form.password} onChange={set("password")} required disabled={loading} />
+            <label className="lock-label" htmlFor="s-cp">Confirm password</label>
+            <PasswordInput id="s-cp" className="lock-input" autoComplete="new-password" value={form.confirm} onChange={set("confirm")} required disabled={loading} />
+            <PasswordChecklist checks={passwordChecks(form.password, form.confirm)} />
+          </div>
+          <button type="submit" className="btn btn-gold btn-block" disabled={loading || !passwordChecks(form.password, form.confirm).every((c) => c.ok)}>
             {loading ? <span className="spinner" /> : "Create Admin Account"}
           </button>
-          {error && <div className="alert alert-error">⚠️ {error}</div>}
+          {error && <div className="alert alert-error" role="alert">{error}</div>}
         </form>
       </div>
     </div>

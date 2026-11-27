@@ -8,27 +8,7 @@ import { FULL_PERMISSIONS } from "./types";
 export const SESSION_COOKIE = "impano_projects_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 
-/* ---------------- Passwords ---------------- */
-
-export function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 64);
-  return `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
-}
-
-export function verifyPassword(password: string, stored: string): boolean {
-  const [scheme, saltHex, hashHex] = stored.split("$");
-  if (scheme !== "scrypt" || !saltHex || !hashHex) return false;
-  const expected = Buffer.from(hashHex, "hex");
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
-  return crypto.timingSafeEqual(expected, actual);
-}
-
-export function validatePassword(password: unknown): string | null {
-  if (typeof password !== "string" || password.length < 8) return "Password must be at least 8 characters.";
-  if (password.length > 200) return "Password is too long.";
-  return null;
-}
+export { DEFAULT_USER_PASSWORD, hashPassword, validatePassword, verifyPassword } from "./passwords";
 
 /* ---------------- Sessions (signed, stateless cookie) ---------------- */
 
@@ -106,9 +86,15 @@ export function jsonError(message: string, status: number) {
 
 type Guarded = { user: User; db: Database; error?: undefined } | { error: NextResponse; user?: undefined; db?: undefined };
 
-export async function requireUser(): Promise<Guarded> {
+/**
+ * Signed-in user, or an error response. Accounts still on the temporary password are blocked
+ * from everything except changing it (pass `allowPendingPassword` on those routes).
+ */
+export async function requireUser(opts: { allowPendingPassword?: boolean } = {}): Promise<Guarded> {
   const session = await getSessionUser();
   if (!session) return { error: jsonError("Not signed in.", 401) };
+  if (session.user.mustChangePassword && !opts.allowPendingPassword)
+    return { error: NextResponse.json({ error: "Please set a new password first.", code: "password_change_required" }, { status: 403 }) };
   return session;
 }
 
@@ -119,28 +105,72 @@ export async function requireAdmin(): Promise<Guarded> {
   return session;
 }
 
-/* ---------------- Login throttling (in-memory) ---------------- */
+/* ---------------- Login throttling (stored in the database) ---------------- */
 
-const attempts = new Map<string, { count: number; until: number }>();
 const MAX_ATTEMPTS = 5;
-const LOCK_MS = 5 * 60 * 1000;
+const LOCK_MS = 10 * 60 * 1000;
 
-export function isLocked(key: string): number {
-  const a = attempts.get(key);
+/** Seconds until `key` is unlocked (0 when not locked). */
+export function isLocked(db: Database, key: string): number {
+  const a = db.throttle?.[key];
   if (a && a.until > Date.now()) return Math.ceil((a.until - Date.now()) / 1000);
   return 0;
 }
 
-export function recordFailure(key: string) {
-  const a = attempts.get(key) ?? { count: 0, until: 0 };
+export function recordFailure(db: Database, key: string) {
+  db.throttle ??= {};
+  const a = db.throttle[key] ?? { count: 0, until: 0 };
   a.count += 1;
   if (a.count >= MAX_ATTEMPTS) {
     a.until = Date.now() + LOCK_MS;
     a.count = 0;
   }
-  attempts.set(key, a);
+  db.throttle[key] = a;
 }
 
-export function clearFailures(key: string) {
-  attempts.delete(key);
+export function clearFailures(db: Database, key: string) {
+  if (db.throttle) delete db.throttle[key];
+}
+
+/* ---------------- One-time sign-in codes ---------------- */
+
+export const OTP_COOKIE = "impano_projects_otp";
+export const OTP_TTL_MIN = 10;
+export const OTP_MAX_ATTEMPTS = 5;
+export const OTP_MAX_RESENDS = 5;
+export const OTP_RESEND_SECONDS = 30;
+
+export function newOtpCode() {
+  return crypto.randomInt(0, 1_000_000).toString().padStart(6, "0");
+}
+
+export function hashOtp(code: string, challengeId: string) {
+  return crypto.createHash("sha256").update(`${challengeId}:${code}`).digest("hex");
+}
+
+export function otpMatches(code: string, challengeId: string, stored: string) {
+  const a = Buffer.from(hashOtp(code, challengeId));
+  const b = Buffer.from(stored);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+export function otpCookieOptions() {
+  return { ...sessionCookieOptions(), maxAge: OTP_TTL_MIN * 60 };
+}
+
+/** "uwasesonia43@gmail.com" → "uw•••••••43@gmail.com" */
+export function maskEmail(email: string) {
+  const [local, domain] = email.split("@");
+  if (!domain) return email;
+  const keep = local.length <= 4 ? 1 : 2;
+  return `${local.slice(0, keep)}${"•".repeat(Math.max(3, local.length - keep * 2))}${local.length > 4 ? local.slice(-2) : ""}@${domain}`;
+}
+
+/** Base URL for links in emails: APP_URL if set, else the request's own origin. */
+export function appUrl(request: Request) {
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
+  const h = request.headers;
+  const host = h.get("x-forwarded-host") || h.get("host");
+  const proto = h.get("x-forwarded-proto") || (host?.startsWith("localhost") ? "http" : "https");
+  return host ? `${proto}://${host}` : new URL(request.url).origin;
 }

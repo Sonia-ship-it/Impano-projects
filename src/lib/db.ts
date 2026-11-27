@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import type { Database } from "./types";
+import { FULL_PERMISSIONS } from "./types";
+import { hashPassword } from "./passwords";
 
 /**
  * Storage layer.
@@ -82,19 +84,56 @@ async function save(db: Database) {
 
 let queue: Promise<unknown> = Promise.resolve();
 
+/**
+ * The administrator account comes from ADMIN_EMAIL / ADMIN_PASSWORD (set them in Vercel's
+ * environment variables). It is created once if missing; after that the admin manages their own
+ * password and the env value is not applied again.
+ */
+function adminSeed() {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const password = process.env.ADMIN_PASSWORD;
+  return email && password ? { email, password, name: process.env.ADMIN_NAME?.trim() || "Administrator" } : null;
+}
+
+function needsSeed(db: Database) {
+  const seed = adminSeed();
+  return !!seed && !db.users.some((u) => u.email === seed.email);
+}
+
+function applySeed(db: Database) {
+  const seed = adminSeed();
+  if (!seed || !needsSeed(db)) return;
+  db.users.push({
+    id: newId("usr_"),
+    name: seed.name,
+    email: seed.email,
+    passwordHash: hashPassword(seed.password),
+    role: "admin",
+    permissions: { ...FULL_PERMISSIONS },
+    projectAccess: { mode: "all", projectIds: [] },
+    active: true,
+    sessionVersion: 1,
+    createdAt: new Date().toISOString(),
+  });
+}
+
 export async function readDB(): Promise<Database> {
   // Wait for pending writes so reads see the latest state.
   await queue.catch(() => {});
   const db = await load();
-  if (db) return db;
-  // First run: create and persist an empty database (sets the session secret).
-  return updateDB((d) => d);
+  if (db && !needsSeed(db)) return db;
+  // First run (or admin missing): create and persist the database (sets the session secret).
+  return updateDB((d) => d).then(() => load() as Promise<Database>);
 }
 
 /** Run a mutation against the database and persist it. Mutations are serialised. */
 export function updateDB<T>(mutate: (db: Database) => T): Promise<T extends Promise<infer U> ? U : T> {
   const run = queue.then(async () => {
     const db = (await load()) ?? emptyDB();
+    applySeed(db);
+    const now = Date.now();
+    if (db.otps) db.otps = db.otps.filter((o) => o.expiresAt > now);
+    if (db.throttle) for (const [k, v] of Object.entries(db.throttle)) if (v.until && v.until < now) delete db.throttle[k];
     const result = await mutate(db);
     await save(db);
     return result;
