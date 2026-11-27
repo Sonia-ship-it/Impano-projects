@@ -8,7 +8,7 @@ matches the Impano Entertainment website and admin portal.
 
 ```bash
 npm install
-cp .env.example .env.local   # set ADMIN_EMAIL / ADMIN_PASSWORD at least
+# create .env.local with at least ADMIN_EMAIL and ADMIN_PASSWORD (see "Deploying to Vercel" below)
 npm run dev                  # http://localhost:3100
 ```
 
@@ -83,7 +83,7 @@ keeps at least one active admin.
   `KV_REST_API_TOKEN` (Upstash Redis / Vercel KV). The database is stored under `KV_DB_KEY`
   (default `impano_projects_db`), separate from the website's CMS key.
 
-See `.env.example` for all settings. Set `SESSION_SECRET` in production.
+All settings are listed under "Deploying to Vercel" above. Never commit `.env` files; they are gitignored.
 
 ## Security notes
 
