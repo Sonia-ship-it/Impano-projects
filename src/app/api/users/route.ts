@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { newId, updateDB } from "@/lib/db";
-import { hashPassword, jsonError, requireAdmin, toPublicUser, validatePassword } from "@/lib/auth";
+import { appUrl, DEFAULT_USER_PASSWORD, hashPassword, jsonError, requireAdmin, toPublicUser } from "@/lib/auth";
+import { sendMail, welcomeEmail } from "@/lib/mail";
 import { logActivity } from "@/lib/projects";
 import { parseEmail, parsePermissions, parseProjectAccess, parseRole } from "@/lib/users";
 import { FULL_PERMISSIONS, type User } from "@/lib/types";
@@ -27,8 +28,6 @@ export async function POST(request: Request) {
   const role = parseRole(body.role) ?? "member";
   if (!name) return jsonError("Name is required.", 400);
   if (!email) return jsonError("A valid email is required.", 400);
-  const pwError = validatePassword(body.password);
-  if (pwError) return jsonError(pwError, 400);
 
   const result = await updateDB((db) => {
     if (db.users.some((u) => u.email === email)) return { error: "A user with this email already exists." };
@@ -36,7 +35,8 @@ export async function POST(request: Request) {
       id: newId("usr_"),
       name,
       email,
-      passwordHash: hashPassword(body.password),
+      passwordHash: hashPassword(DEFAULT_USER_PASSWORD),
+      mustChangePassword: true,
       role,
       permissions: role === "admin" ? { ...FULL_PERMISSIONS } : parsePermissions(body.permissions),
       projectAccess: role === "admin" ? { mode: "all", projectIds: [] } : parseProjectAccess(body.projectAccess, new Set(db.projects.map((p) => p.id))),
@@ -50,5 +50,12 @@ export async function POST(request: Request) {
   });
 
   if ("error" in result) return jsonError(result.error!, 409);
-  return NextResponse.json({ user: toPublicUser(result.user) }, { status: 201 });
+  const mail = await sendMail({
+    to: result.user.email,
+    ...welcomeEmail(result.user.name, result.user.email, DEFAULT_USER_PASSWORD, `${appUrl(request)}/login`),
+  });
+  return NextResponse.json(
+    { user: toPublicUser(result.user), emailSent: mail.sent, emailError: mail.sent ? undefined : mail.reason },
+    { status: 201 }
+  );
 }

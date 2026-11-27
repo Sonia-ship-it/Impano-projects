@@ -71,3 +71,12 @@ export const IconEyeOff = ({ size = 18 }: P) => (
 export const IconSort = ({ size = 12 }: P) => (
   <svg {...base(size)}><polyline points="7 15 12 20 17 15" /><polyline points="7 9 12 4 17 9" /></svg>
 );
+export const IconMail = ({ size = 16 }: P) => (
+  <svg {...base(size)}><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>
+);
+export const IconShield = ({ size = 16 }: P) => (
+  <svg {...base(size)}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></svg>
+);
+export const IconKey = ({ size = 16 }: P) => (
+  <svg {...base(size)}><circle cx="7.5" cy="15.5" r="5.5" /><path d="m21 2-9.6 9.6" /><path d="m15.5 7.5 3 3L22 7l-3-3" /></svg>
+);

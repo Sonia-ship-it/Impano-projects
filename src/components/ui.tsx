@@ -58,6 +58,30 @@ export function PasswordInput(props: React.InputHTMLAttributes<HTMLInputElement>
   );
 }
 
+/** Live checklist shown under "new password" fields; mirrors the server rules in lib/passwords. */
+export function passwordChecks(pw: string, confirm: string, tempPassword?: string) {
+  return [
+    { ok: pw.length >= 8, label: "At least 8 characters" },
+    { ok: /[A-Za-z]/.test(pw) && /\d/.test(pw), label: "Contains a letter and a number" },
+    ...(tempPassword ? [{ ok: pw.length > 0 && pw !== tempPassword, label: "Not the temporary password" }] : []),
+    { ok: pw.length > 0 && pw === confirm, label: "Both passwords match" },
+  ];
+}
+
+export function PasswordChecklist({ checks }: { checks: { ok: boolean; label: string }[] }) {
+  return (
+    <ul className="pw-checks" aria-label="Password requirements">
+      {checks.map((c) => (
+        <li key={c.label} className={c.ok ? "ok" : ""}>
+          <span className="pw-check-dot" aria-hidden="true">{c.ok ? <IconCheck size={11} /> : null}</span>
+          {c.label}
+          <span className="sr-only">{c.ok ? " (done)" : " (not yet)"}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ---------------- Modal ---------------- */
 
 export function Modal({
@@ -135,6 +159,9 @@ export async function api<T = unknown>(url: string, init?: RequestInit): Promise
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && typeof window !== "undefined" && !url.startsWith("/api/auth/")) {
     window.location.href = "/login";
+  }
+  if (res.status === 403 && data.code === "password_change_required" && typeof window !== "undefined") {
+    window.location.href = "/change-password";
   }
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
   return data as T;

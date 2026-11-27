@@ -68,9 +68,9 @@ export default function AppShell({
     <SessionContext.Provider value={{ user, permissions, isAdmin }}>
       <ToastProvider>
         <div className="mobile-bar">
-          <Link href="/dashboard" style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-            <Logo size={34} />
-            <strong style={{ fontSize: "0.85rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>Impano Projects</strong>
+          <Link href="/dashboard" className="brand brand-compact" aria-label="Projects — home">
+            <Logo size={36} />
+            <span className="brand-word">Projects</span>
           </Link>
           <button className="btn btn-ghost btn-sm" onClick={() => setOpen(true)} aria-label="Open menu">
             <IconMenu />
@@ -79,12 +79,9 @@ export default function AppShell({
         <div className={`sidebar-backdrop ${open ? "open" : ""}`} onClick={() => setOpen(false)} />
         <div className="shell">
           <aside className={`sidebar ${open ? "open" : ""}`}>
-            <Link href="/dashboard" className="brand">
-              <Logo size={46} />
-              <div className="brand-text">
-                <strong>Impano Entertainment</strong>
-                <span>Projects</span>
-              </div>
+            <Link href="/dashboard" className="brand" aria-label="Projects — home">
+              <Logo size={48} />
+              <span className="brand-word">Projects</span>
             </Link>
             <div className="nav-label">Workspace</div>
             {nav.map((n) => (
@@ -109,16 +106,15 @@ export default function AppShell({
                 <IconUser />
                 My Account
               </Link>
-              <button className="tab-btn" style={{ width: "100%" }} onClick={logout}>
-                <IconLogout />
-                Sign Out
-              </button>
               <div className="user-chip">
                 <div className="avatar">{initials(user.name)}</div>
                 <div className="user-chip-text">
                   <strong>{user.name}</strong>
                   <span>{isAdmin ? "Administrator" : "Member"}</span>
                 </div>
+                <button className="icon-btn" onClick={logout} aria-label="Sign out" title="Sign out">
+                  <IconLogout />
+                </button>
               </div>
             </div>
           </aside>

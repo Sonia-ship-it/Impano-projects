@@ -9,6 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     const db = await readDB();
     redirect(db.users.length === 0 ? "/setup" : "/login");
   }
+  if (session.user.mustChangePassword) redirect("/change-password");
   return (
     <AppShell user={toPublicUser(session.user)} permissions={effectivePermissions(session.user)}>
       {children}

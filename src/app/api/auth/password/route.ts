@@ -12,9 +12,12 @@ import {
 } from "@/lib/auth";
 import { logActivity } from "@/lib/projects";
 
-/** Change your own password. Signs out all other sessions. */
+/**
+ * Change your own password. Signs out all other sessions.
+ * Accounts still on the temporary password don't need to re-enter it (they just proved it + the emailed code).
+ */
 export async function POST(request: Request) {
-  const session = await requireUser();
+  const session = await requireUser({ allowPendingPassword: true });
   if (session.error) return session.error;
   const body = await request.json().catch(() => ({}));
   const pwError = validatePassword(body.newPassword);
@@ -23,11 +26,16 @@ export async function POST(request: Request) {
   const result = await updateDB((db) => {
     const user = db.users.find((u) => u.id === session.user.id);
     if (!user) return { error: "Account not found." };
-    if (typeof body.currentPassword !== "string" || !verifyPassword(body.currentPassword, user.passwordHash))
-      return { error: "Current password is incorrect." };
+    if (!user.mustChangePassword) {
+      if (typeof body.currentPassword !== "string" || !verifyPassword(body.currentPassword, user.passwordHash))
+        return { error: "Current password is incorrect." };
+      if (body.currentPassword === body.newPassword) return { error: "The new password must be different from the current one." };
+    }
+    const wasTemporary = !!user.mustChangePassword;
     user.passwordHash = hashPassword(body.newPassword);
+    user.mustChangePassword = false;
     user.sessionVersion += 1;
-    logActivity(db, user, "changed their password", user.email);
+    logActivity(db, user, wasTemporary ? "set their own password" : "changed their password", user.email);
     return { token: createSessionToken(user, db) };
   });
 

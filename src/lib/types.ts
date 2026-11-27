@@ -30,9 +30,22 @@ export interface User {
   sessionVersion: number;
   createdAt: string;
   lastLoginAt?: string;
+  /** Set while the account still uses the shared temporary password; cleared once they choose their own. */
+  mustChangePassword?: boolean;
 }
 
 export type PublicUser = Omit<User, "passwordHash" | "sessionVersion">;
+
+/** A pending sign-in waiting for the one-time code that was emailed to the user. */
+export interface OtpChallenge {
+  id: string;
+  userId: string;
+  codeHash: string;
+  expiresAt: number;
+  sentAt: number;
+  attempts: number;
+  resends: number;
+}
 
 export const PROJECT_STATUSES = [
   "planned",
@@ -132,6 +145,10 @@ export interface Database {
   users: User[];
   projects: Project[];
   activity: ActivityEntry[];
+  /** Pending OTP sign-ins (stored in the database so they work on serverless hosts). */
+  otps?: OtpChallenge[];
+  /** Failed sign-in counters per key, e.g. "login:someone@example.com". */
+  throttle?: Record<string, { count: number; until: number }>;
 }
 
 export type PaymentStatus = "unpaid" | "partial" | "paid" | "overpaid";

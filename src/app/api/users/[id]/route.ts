@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateDB } from "@/lib/db";
-import { hashPassword, jsonError, requireAdmin, toPublicUser, validatePassword } from "@/lib/auth";
+import { appUrl, DEFAULT_USER_PASSWORD, hashPassword, jsonError, requireAdmin, toPublicUser } from "@/lib/auth";
+import { sendMail, welcomeEmail } from "@/lib/mail";
 import { logActivity } from "@/lib/projects";
 import { parseEmail, parsePermissions, parseProjectAccess, parseRole } from "@/lib/users";
 import { FULL_PERMISSIONS, type Database } from "@/lib/types";
@@ -9,17 +10,15 @@ function activeAdminCount(db: Database) {
   return db.users.filter((u) => u.role === "admin" && u.active).length;
 }
 
-/** Admin: update a user's profile, role, permissions, project access, status or password. */
+/**
+ * Admin: update a user's profile, role, permissions, project access or status.
+ * `resetPassword: true` puts them back on the temporary password, signs them out and emails them.
+ */
 export async function PUT(request: Request, ctx: RouteContext<"/api/users/[id]">) {
   const { id } = await ctx.params;
   const session = await requireAdmin();
   if (session.error) return session.error;
   const body = await request.json().catch(() => ({}));
-
-  if ("password" in body && body.password) {
-    const pwError = validatePassword(body.password);
-    if (pwError) return jsonError(pwError, 400);
-  }
 
   const result = await updateDB((db) => {
     const original = db.users.find((u) => u.id === id);
@@ -75,19 +74,32 @@ export async function PUT(request: Request, ctx: RouteContext<"/api/users/[id]">
       user.sessionVersion += 1;
       changes.push(body.active ? "reactivated" : "deactivated");
     }
-    if (body.password) {
-      user.passwordHash = hashPassword(body.password);
+    const resetPassword = body.resetPassword === true;
+    if (resetPassword) {
+      if (isSelf) return { error: "Change your own password from My Account.", status: 400 };
+      user.passwordHash = hashPassword(DEFAULT_USER_PASSWORD);
+      user.mustChangePassword = true;
       user.sessionVersion += 1;
       changes.push("password reset");
     }
 
     Object.assign(original, user);
     if (changes.length) logActivity(db, session.user, "updated user", `${user.name} (${user.email})`, changes.join(", "));
-    return { user };
+    return { user, resetPassword };
   });
 
   if ("error" in result) return jsonError(result.error!, result.status!);
-  return NextResponse.json({ user: toPublicUser(result.user) });
+  let mail: Awaited<ReturnType<typeof sendMail>> | undefined;
+  if (result.resetPassword) {
+    mail = await sendMail({
+      to: result.user.email,
+      ...welcomeEmail(result.user.name, result.user.email, DEFAULT_USER_PASSWORD, `${appUrl(request)}/login`, true),
+    });
+  }
+  return NextResponse.json({
+    user: toPublicUser(result.user),
+    ...(mail ? { emailSent: mail.sent, emailError: mail.sent ? undefined : mail.reason } : {}),
+  });
 }
 
 export async function DELETE(_req: Request, ctx: RouteContext<"/api/users/[id]">) {
