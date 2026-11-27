@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { effectivePermissions, requireUser, toPublicUser } from "@/lib/auth";
+import { effectivePermissions, requireUser, toPublicUser, withErrors } from "@/lib/auth";
 import { storageType } from "@/lib/db";
 
-export async function GET() {
+async function handleGET() {
   const session = await requireUser({ allowPendingPassword: true });
   if (session.error) return session.error;
   return NextResponse.json({
@@ -11,3 +11,5 @@ export async function GET() {
     storage: storageType(),
   });
 }
+
+export const GET = withErrors(handleGET);
