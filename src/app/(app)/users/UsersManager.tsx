@@ -15,6 +15,9 @@ import {
   type Role,
 } from "@/lib/types";
 
+interface Credentials { email: string; password: string; loginUrl: string }
+interface SavedUser { emailSent?: boolean; emailError?: string; credentials?: Credentials }
+
 interface ProjectRef { id: string; code: string; title: string; status: ProjectStatus }
 
 interface Draft {
@@ -36,7 +39,7 @@ const blank: Draft = {
   projectAccess: { mode: "all", projectIds: [] },
 };
 
-export default function UsersManager() {
+export default function UsersManager({ defaultPassword }: { defaultPassword: string }) {
   const { user: me } = useSession();
   const toast = useToast();
   const [users, setUsers] = useState<PublicUser[] | null>(null);
@@ -47,6 +50,7 @@ export default function UsersManager() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
+  const [creds, setCreds] = useState<{ name: string; reset: boolean; emailSent: boolean; emailError?: string; credentials: Credentials } | null>(null);
 
   const load = useCallback(() => {
     api<{ users: PublicUser[]; projects: ProjectRef[] }>("/api/users")
@@ -76,10 +80,9 @@ export default function UsersManager() {
     };
     if (draft.id) body.active = draft.active;
     try {
-      const res = await api<{ emailSent?: boolean; emailError?: string }>(draft.id ? `/api/users/${draft.id}` : "/api/users", { method: draft.id ? "PUT" : "POST", body: JSON.stringify(body) });
+      const res = await api<SavedUser>(draft.id ? `/api/users/${draft.id}` : "/api/users", { method: draft.id ? "PUT" : "POST", body: JSON.stringify(body) });
       if (draft.id) toast("User updated.", "success");
-      else if (res.emailSent) toast(`Invitation sent to ${draft.email}.`, "success");
-      else toast(`User created, but the email failed: ${res.emailError}. Share the temporary password with them yourself.`, "error");
+      else if (res.credentials) setCreds({ name: draft.name, reset: false, emailSent: !!res.emailSent, emailError: res.emailError, credentials: res.credentials });
       setDraft(null);
       load();
     } catch (err) {
@@ -108,8 +111,9 @@ export default function UsersManager() {
     if (!toReset) return;
     setSaving(true);
     try {
-      const res = await api<{ emailSent?: boolean; emailError?: string }>(`/api/users/${toReset.id}`, { method: "PUT", body: JSON.stringify({ resetPassword: true }) });
-      toast(res.emailSent ? `Password reset. ${toReset.name} has been emailed.` : `Password reset, but the email failed: ${res.emailError}`, res.emailSent ? "success" : "error");
+      const res = await api<SavedUser>(`/api/users/${toReset.id}`, { method: "PUT", body: JSON.stringify({ resetPassword: true }) });
+      if (res.credentials) setCreds({ name: toReset.name, reset: true, emailSent: !!res.emailSent, emailError: res.emailError, credentials: res.credentials });
+      else toast("Password reset.", "success");
       setToReset(null);
       setDraft(null);
       load();
@@ -226,7 +230,9 @@ export default function UsersManager() {
             {!draft.id && (
               <div className="alert alert-info">
                 <IconMail size={16} />
-                <span>We&apos;ll email them a temporary password and a sign-in link. They must choose their own password the first time they sign in.</span>
+                <span>
+                  New users start with the default password <code className="cred-inline">{defaultPassword}</code>. We&apos;ll email it to them with a sign-in link, and you&apos;ll see the details to share yourself. They must choose their own password the first time they sign in.
+                </span>
               </div>
             )}
 
@@ -297,6 +303,8 @@ export default function UsersManager() {
         </Modal>
       )}
 
+      {creds && <CredentialsDialog {...creds} onClose={() => setCreds(null)} />}
+
       {toReset && (
         <ConfirmDialog
           title="Reset password?"
@@ -319,5 +327,78 @@ export default function UsersManager() {
         />
       )}
     </>
+  );
+}
+
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+  return (
+    <div className="cred-row">
+      <span className="cred-label">{label}</span>
+      <code className="cred-value">{value}</code>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
+    </div>
+  );
+}
+
+function CredentialsDialog({
+  name,
+  reset,
+  emailSent,
+  emailError,
+  credentials,
+  onClose,
+}: {
+  name: string;
+  reset: boolean;
+  emailSent: boolean;
+  emailError?: string;
+  credentials: Credentials;
+  onClose: () => void;
+}) {
+  const [copiedAll, setCopiedAll] = useState(false);
+  const text = `Hi ${name},
+
+Your Impano Projects account is ready.
+
+Sign in: ${credentials.loginUrl}
+Email: ${credentials.email}
+Temporary password: ${credentials.password}
+
+You'll get a 6-digit code by email when you sign in, and you'll be asked to choose your own password.`;
+  const copyAll = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    } catch {}
+  };
+  return (
+    <Modal title={reset ? "Password reset" : "User created"} onClose={onClose} small>
+      {emailSent ? (
+        <div className="alert alert-success"><IconMail size={16} /><span>We emailed these sign-in details to <strong>{credentials.email}</strong>.</span></div>
+      ) : (
+        <div className="alert alert-error" role="alert"><span>The email could not be sent{emailError ? `: ${emailError}` : "."} Share these details with {name} yourself.</span></div>
+      )}
+      <div className="cred-box">
+        <CopyField label="Sign-in page" value={credentials.loginUrl} />
+        <CopyField label="Email" value={credentials.email} />
+        <CopyField label="Temporary password" value={credentials.password} />
+      </div>
+      <p className="field-hint" style={{ marginTop: "0.75rem" }}>
+        {name} must choose a new password the first time they sign in. The temporary password stops working after that.
+      </p>
+      <div className="form-actions">
+        <button type="button" className="btn btn-ghost" onClick={copyAll}>{copiedAll ? "Copied" : "Copy all"}</button>
+        <button type="button" className="btn btn-gold" onClick={onClose}>Done</button>
+      </div>
+    </Modal>
   );
 }

@@ -50,12 +50,19 @@ export async function POST(request: Request) {
   });
 
   if ("error" in result) return jsonError(result.error!, 409);
+  const loginUrl = `${appUrl(request)}/login`;
   const mail = await sendMail({
     to: result.user.email,
-    ...welcomeEmail(result.user.name, result.user.email, DEFAULT_USER_PASSWORD, `${appUrl(request)}/login`),
+    ...welcomeEmail(result.user.name, result.user.email, DEFAULT_USER_PASSWORD, loginUrl),
   });
   return NextResponse.json(
-    { user: toPublicUser(result.user), emailSent: mail.sent, emailError: mail.sent ? undefined : mail.reason },
+    {
+      user: toPublicUser(result.user),
+      emailSent: mail.sent,
+      emailError: mail.sent ? undefined : mail.reason,
+      // Shown to the admin so they can share the details directly if the email doesn't arrive.
+      credentials: { email: result.user.email, password: DEFAULT_USER_PASSWORD, loginUrl },
+    },
     { status: 201 }
   );
 }
