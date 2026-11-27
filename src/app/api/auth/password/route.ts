@@ -9,6 +9,7 @@ import {
   SESSION_COOKIE,
   validatePassword,
   verifyPassword,
+  withErrors,
 } from "@/lib/auth";
 import { logActivity } from "@/lib/projects";
 
@@ -16,7 +17,7 @@ import { logActivity } from "@/lib/projects";
  * Change your own password. Signs out all other sessions.
  * Accounts still on the temporary password don't need to re-enter it (they just proved it + the emailed code).
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await requireUser({ allowPendingPassword: true });
   if (session.error) return session.error;
   const body = await request.json().catch(() => ({}));
@@ -44,3 +45,5 @@ export async function POST(request: Request) {
   res.cookies.set(SESSION_COOKIE, result.token, sessionCookieOptions());
   return res;
 }
+
+export const POST = withErrors(handlePOST);

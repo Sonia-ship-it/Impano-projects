@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { readDB } from "./db";
+import { ConfigError, readDB } from "./db";
 import type { Database, Permissions, PublicUser, User } from "./types";
 import { FULL_PERMISSIONS } from "./types";
 
@@ -173,4 +173,22 @@ export function appUrl(request: Request) {
   const host = h.get("x-forwarded-host") || h.get("host");
   const proto = h.get("x-forwarded-proto") || (host?.startsWith("localhost") ? "http" : "https");
   return host ? `${proto}://${host}` : new URL(request.url).origin;
+}
+
+/* ---------------- Error handling ---------------- */
+
+/**
+ * Wrap a route handler so unexpected failures return JSON (shown in the UI) instead of an HTML 500 page.
+ * Configuration problems (e.g. missing storage on Vercel) surface their message so they can be fixed.
+ */
+export function withErrors<A extends unknown[]>(handler: (...args: A) => Promise<Response>) {
+  return async (...args: A): Promise<Response> => {
+    try {
+      return await handler(...args);
+    } catch (err) {
+      console.error("[api] Unhandled error:", err);
+      if (err instanceof ConfigError) return jsonError(`Server setup problem: ${err.message}`, 503);
+      return jsonError("Something went wrong on the server. Please try again.", 500);
+    }
+  };
 }

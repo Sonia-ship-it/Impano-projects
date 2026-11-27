@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
 import { readDB, updateDB, newId } from "@/lib/db";
-import { createSessionToken, hashPassword, jsonError, sessionCookieOptions, SESSION_COOKIE, toPublicUser, validatePassword } from "@/lib/auth";
+import { createSessionToken, hashPassword, jsonError, sessionCookieOptions, SESSION_COOKIE, toPublicUser, validatePassword, withErrors } from "@/lib/auth";
 import { logActivity } from "@/lib/projects";
 import { FULL_PERMISSIONS, type User } from "@/lib/types";
 
 /** First-run: tells the UI whether an administrator account still needs to be created. */
-export async function GET() {
+async function handleGET() {
   const db = await readDB();
   return NextResponse.json({ needsSetup: db.users.length === 0 });
 }
 
 /** First-run: create the initial administrator. Disabled once any user exists. */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 100) : "";
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 200) : "";
@@ -45,3 +45,7 @@ export async function POST(request: Request) {
   res.cookies.set(SESSION_COOKIE, result.token, sessionCookieOptions());
   return res;
 }
+
+export const GET = withErrors(handleGET);
+
+export const POST = withErrors(handlePOST);

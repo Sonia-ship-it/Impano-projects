@@ -9,11 +9,12 @@ import {
   otpMatches,
   SESSION_COOKIE,
   sessionCookieOptions,
+  withErrors,
 } from "@/lib/auth";
 import { logActivity } from "@/lib/projects";
 
 /** Step 2 of sign-in: confirm the emailed code and start the session. */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const code = typeof body.code === "string" ? body.code.replace(/\D/g, "") : "";
   const challengeId = (await cookies()).get(OTP_COOKIE)?.value;
@@ -50,3 +51,5 @@ export async function POST(request: Request) {
   if (!("error" in result) || result.status === 410) res.cookies.set(OTP_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 }
+
+export const POST = withErrors(handlePOST);

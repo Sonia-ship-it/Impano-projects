@@ -42,14 +42,31 @@ function emptyDB(): Database {
   };
 }
 
+/** Thrown when the server is misconfigured; its message is safe to show to users. */
+export class ConfigError extends Error {}
+
+function assertWritableStorage() {
+  // Vercel's filesystem is read-only and not shared between requests, so a KV store is required there.
+  if (!kvConfig() && process.env.VERCEL)
+    throw new ConfigError(
+      "Storage is not configured. In Vercel, connect an Upstash Redis (KV) database so KV_REST_API_URL and KV_REST_API_TOKEN are set, then redeploy."
+    );
+}
+
 async function load(): Promise<Database | null> {
+  assertWritableStorage();
   const kv = kvConfig();
   if (kv) {
     const res = await fetch(`${kv.url}/get/${KV_KEY}`, {
       headers: { Authorization: `Bearer ${kv.token}` },
       cache: "no-store",
     });
-    if (!res.ok) throw new Error(`KV read failed (${res.status})`);
+    if (!res.ok)
+      throw new ConfigError(
+        res.status === 401 || res.status === 403
+          ? "Storage rejected the credentials. Check KV_REST_API_TOKEN in Vercel (use the read/write token, not the read-only one)."
+          : `Storage is unreachable (KV read failed with ${res.status}). Check KV_REST_API_URL in Vercel.`
+      );
     const body = await res.json();
     if (!body?.result) return null;
     return typeof body.result === "string" ? JSON.parse(body.result) : body.result;
@@ -71,7 +88,12 @@ async function save(db: Database) {
       headers: { Authorization: `Bearer ${kv.token}` },
       body: json,
     });
-    if (!res.ok) throw new Error(`KV write failed (${res.status})`);
+    if (!res.ok)
+      throw new ConfigError(
+        res.status === 401 || res.status === 403
+          ? "Storage refused to save. KV_REST_API_TOKEN looks read-only or wrong; use the read/write token."
+          : `Storage write failed (${res.status}). Check the KV settings in Vercel.`
+      );
     return;
   }
   const file = dataFile();

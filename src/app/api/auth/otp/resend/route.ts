@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { updateDB } from "@/lib/db";
-import { hashOtp, jsonError, newOtpCode, OTP_COOKIE, OTP_MAX_RESENDS, OTP_RESEND_SECONDS, OTP_TTL_MIN } from "@/lib/auth";
+import { hashOtp, jsonError, newOtpCode, OTP_COOKIE, OTP_MAX_RESENDS, OTP_RESEND_SECONDS, OTP_TTL_MIN, withErrors } from "@/lib/auth";
 import { mailIsConsoleOnly, otpEmail, sendMail } from "@/lib/mail";
 
 /** Email a fresh code for the pending sign-in. */
-export async function POST() {
+async function handlePOST() {
   const challengeId = (await cookies()).get(OTP_COOKIE)?.value;
   if (!challengeId) return jsonError("Your sign-in expired. Please enter your password again.", 410);
   const code = newOtpCode();
@@ -28,3 +28,5 @@ export async function POST() {
   if (!mail.sent) return jsonError(mail.reason, 503);
   return NextResponse.json({ ok: true, ...(mailIsConsoleOnly() ? { devCode: code } : {}) });
 }
+
+export const POST = withErrors(handlePOST);

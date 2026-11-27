@@ -12,6 +12,7 @@ import {
   otpCookieOptions,
   recordFailure,
   verifyPassword,
+  withErrors,
 } from "@/lib/auth";
 import { mailIsConsoleOnly, otpEmail, sendMail } from "@/lib/mail";
 
@@ -19,7 +20,7 @@ import { mailIsConsoleOnly, otpEmail, sendMail } from "@/lib/mail";
  * Step 1 of sign-in: check email + password, then email a 6-digit code.
  * The session is only issued once the code is confirmed at /api/auth/otp.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const password = typeof body.password === "string" ? body.password : "";
@@ -61,3 +62,5 @@ export async function POST(request: Request) {
   res.cookies.set(OTP_COOKIE, result.challengeId, otpCookieOptions());
   return res;
 }
+
+export const POST = withErrors(handlePOST);
